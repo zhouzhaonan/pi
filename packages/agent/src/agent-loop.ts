@@ -30,6 +30,8 @@ import type {
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
+// ===== Public entry ==========================================================
+
 /**
  * Start an agent loop with a new prompt message.
  * The prompt is added to the context and events are emitted for it.
@@ -156,6 +158,8 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
 	);
 }
 
+// ===== Main loop =============================================================
+
 /**
  * Main loop logic shared by agentLoop and agentLoopContinue.
  */
@@ -278,6 +282,8 @@ async function runLoop(
 	await emit({ type: "agent_end", messages: newMessages });
 }
 
+// ===== Tool loadout declarations =============================================
+
 /**
  * Declare tool loadout changes to the model.
  *
@@ -331,6 +337,8 @@ function withToolChanges(message: SystemMessage, { toolsAdded, toolsRemoved }: T
 		...(toolsRemoved.length > 0 ? { toolsRemoved } : {}),
 	};
 }
+
+// ===== LLM request ===========================================================
 
 /**
  * Stream an assistant response from the LLM.
@@ -423,6 +431,8 @@ async function streamAssistantResponse(
 	await emit({ type: "message_end", message: finalMessage });
 	return finalMessage;
 }
+
+// ===== Tool execution ========================================================
 
 /**
  * Fail all tool calls from an assistant message that was truncated by the
@@ -614,6 +624,8 @@ async function executeToolCallsParallel(
 		terminate: shouldTerminateToolBatch(orderedFinalizedCalls),
 	};
 }
+
+// ===== Single tool call: prepare / execute / finalize ========================
 
 type PreparedToolCall = {
 	kind: "prepared";
@@ -818,6 +830,8 @@ async function finalizeExecutedToolCall(
 		isError,
 	};
 }
+
+// ===== Tool result events ====================================================
 
 function createErrorToolResult(message: string): AgentToolResult<any> {
 	return {

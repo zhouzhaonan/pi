@@ -169,56 +169,75 @@ Harness **明确不保证**：外部效果 exactly-once、接回 provider 的半
 
 按这个顺序读，每一步只回答一个问题。读完可以停；后面是加厚，不是主线。
 
+勾选是阅读进度（2026-09-20）。**下一刀：`packages/agent/src/agent.ts` 的 `Agent` 类。**
+
 ### 第 0 天：先建立口味（约 30 分钟）
 
-1. `README.md`（仓库根）— 包地图。
-2. `packages/coding-agent/README.md` 的开头 + **Philosophy** 整节。
-3. [博客原文](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/) 里这些小节：
-  - *Context handoff*
-  - *Structured split tool results*
-  - *Minimal agent scaffold*
-  - *Minimal system prompt / toolset*
-  - *YOLO by default*
-  - *No built-in to-dos / plan / MCP / background bash / sub-agents*
+- [ ] `README.md`（仓库根）— 包地图。
+- [ ] `packages/coding-agent/README.md` 的开头 + **Philosophy** 整节。
+- [ ] [博客原文](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/) 里这些小节：
+  - [ ] *Context handoff*
+  - [ ] *Structured split tool results*
+  - [ ] *Minimal agent scaffold*
+  - [ ] *Minimal system prompt / toolset*
+  - [ ] *YOLO by default*
+  - [ ] *No built-in to-dos / plan / MCP / background bash / sub-agents*
 
 读到这里你应该能用自己的话解释：pi 为什么拒绝成为 Claude Code。
 
 ### 第 1 天：经典 agent loop（这是核心）
 
-只读这几个文件，尽量读全文：
+只读这几个文件。概念过关即可打钩，不必把文件每个函数都读完。
 
-1. `packages/agent/src/types.ts`
-  先搞清：`StreamFn`、`AgentMessage`、`AgentLoopConfig`、`AgentTool` / `AgentToolResult`。  
-   特别看 `convertToLlm` 和 `CustomAgentMessages` 的注释。
-2. `packages/agent/src/agent-loop.ts`
-  从 `agentLoop` → `runAgentLoop` → `runLoop` 往下。内层 while 是 tool/steering，外层 while 是 follow-up。  
-   然后读 `streamAssistantResponse`（context 变换边界）和 `executeToolCalls`（校验发生在 loop，不在 provider）。
-3. `packages/agent/src/agent.ts` 的 `Agent` 类
-  只是 loop 的状态壳：transcript、steering/follow-up 队列、把 `prompt()` 转成一次 `runAgentLoop`。  
-   `createLoopConfig()` 能看清所有策略回调从哪进来。
-4. `packages/agent/src/harness/messages.ts` 的 `convertToLlm()`
-  看自定义 role 怎么变成 `user` 消息。这是「应用 transcript ≠ 模型 context」的实例。
+- [x] `packages/agent/README.md`（标准答案；实际先读了这份）
+  - [x] Quick Start：`Agent` 是状态壳，`streamFn` 是发请求的插口，`subscribe` 收事件
+  - [x] Core Concepts：`AgentMessage[]` ≠ 发给模型的 `Message[]`；`transformContext` 裁窗，`convertToLlm` 翻译
+  - [x] Event Flow：run / turn / message；turn = 一枪模型 + 这枪点的 tool；`tool_execution_*` 是过程，`toolResult` 才进对话
+  - [x] 回调：`beforeToolCall` / `afterToolCall` / `shouldStopAfterTurn`；策略不在 loop 里
+  - [x] Agent State vs Event：快照读 `agent.state`，过程订事件
+  - [x] steer vs follow-up：下一枪插话 vs 本可以停了再排队
+  - [x] Custom message types：declaration merging 只扩展类型；模型仍要 `convertToLlm`
+  - [x] Tools：`content` 给模型，`details` 给 UI；失败 `throw`
+  - [x] Proxy / Low-Level API：换 `streamFn` 即可走代理；`agentLoop()` 不等 listener 当屏障
+  - [x] SQLite / chord 两段：不是当前主路径，跳过（会话默认 JSONL；chord 不是 sub-agent）
+- [x] `packages/agent/src/types.ts`
+  - [x] `StreamFn`：不能 throw，失败编码进 stream 的 `stopReason`
+  - [x] 工具声明在 transcript 的 system 消息上（`toolsAdded` / `toolsRemoved`），可执行函数在 `agent.state.tools`
+  - [x] `AgentLoopConfig`：回调表（含 `prepareNextTurn`、steering / follow-up）
+  - [x] `CustomAgentMessages` / `AgentMessage`
+  - [x] `AgentTool` / `AgentToolResult`
+  - [x] `AgentContext` / `AgentEvent`
+- [x] `packages/agent/src/agent-loop.ts`
+  - [x] `agentLoop` → `runAgentLoop` → `runLoop`
+  - [x] 内层 while = tool / steering，外层 while = follow-up
+  - [x] `streamAssistantResponse`（`transformContext` → `convertToLlm` → `streamFn`）
+  - [x] `executeToolCalls`（校验、`beforeToolCall`、执行、`afterToolCall` 都在 loop）
+- [ ] `packages/agent/src/agent.ts` 的 `Agent` 类
+  - [ ] `prompt()` → `runAgentLoop`
+  - [ ] `createLoopConfig()` 把队列接到回调上
+  - [ ] `processEvents()` 把事件折进 `state`
+- [ ] `packages/agent/src/harness/messages.ts` 的 `convertToLlm()`
+  - [x] `declare module` 给 `CustomAgentMessages` 加 key（类型挂钩，已讲）
+  - [ ] 自定义 role 怎么变成 `user` 消息（函数本身还没对着走）
 
 读完应能在纸上画出一次 `prompt("读 README")` 的事件序列：`agent_start` → `turn_start` → user message → assistant（可能带 toolCall）→ tool 执行 → toolResult → 下一 turn → `agent_end`。
-
-`packages/agent/README.md` 的 Event Flow 图就是这份作业的标准答案。
 
 ### 第 2 天：coding-agent 怎么把 loop 变成产品
 
 仍然跳过 TUI。只看 core：
 
-1. `packages/coding-agent/src/core/sdk.ts`
+- [ ] `packages/coding-agent/src/core/sdk.ts`
   `createAgentSession()`：装工具、extensions、把 `Agent` 嵌进去。  
    注意 `setDefaultStreamFn(streamSimple)` 的注释：agent-core **故意不依赖** 具体 provider。
-2. `packages/coding-agent/src/core/agent-session.ts` 开头注释 + `prepareNextTurn` / compaction 相关方法
+- [ ] `packages/coding-agent/src/core/agent-session.ts` 开头注释 + `prepareNextTurn` / compaction 相关方法
   这是所有 mode（interactive / print / rpc）共享的宿主。它把 session 树、compaction、模型切换接到 `Agent` 的回调上。文件很长，不要通读；搜 `prepareNextTurn`、`compact`、`steer`、`followUp`。
-3. `packages/coding-agent/src/core/system-prompt.ts`
+- [ ] `packages/coding-agent/src/core/system-prompt.ts`
   系统提示怎么从 preamble + 工具 snippet + AGENTS.md + skills 拼起来。对照「最小 prompt」原则。
-4. `packages/coding-agent/src/core/tools/read.ts`（一个工具就够）
+- [ ] `packages/coding-agent/src/core/tools/read.ts`（一个工具就够）
   看 `content` vs `details`、`operations` 可替换（本地 fs / SSH）。工具是数据 + 执行，不是和 TUI 焊死的。
-5. `packages/coding-agent/docs/extensions.md` 开头 + Events 总览
+- [ ] `packages/coding-agent/docs/extensions.md` 开头 + Events 总览
   产品哲学落地的地方：权限、plan mode、sub-agent 都应该能在这里做，而不是改 loop。
-6. `packages/coding-agent/docs/sessions.md` + `docs/compaction.md` 的 Overview
+- [ ] `packages/coding-agent/docs/sessions.md` + `docs/compaction.md` 的 Overview
   树、fork、compaction 不删历史。
 
 到这里，**pi 作为 coding agent 的设计已经闭环**：小 loop + 小工具集 + 把策略放到 session/extension 层。
@@ -227,9 +246,9 @@ Harness **明确不保证**：外部效果 exactly-once、接回 provider 的半
 
 `packages/ai` 很大，90% 是各家 API 的脏细节。设计上只需要：
 
-1. `packages/ai/README.md` 开头到 Tools / Context Serialization / Cross-Provider Handoffs。
-2. 搞清：模型必须能 tool call；`streamSimple` 满足 `StreamFn`；abort 必须返回 partial；跨 provider 切换是 best-effort（thinking 变成带标签的文本）。
-3. 不要读 `openai-completions.ts` 这类文件，除非你要修某个 provider。
+- [ ] `packages/ai/README.md` 开头到 Tools / Context Serialization / Cross-Provider Handoffs。
+- [ ] 搞清：模型必须能 tool call；`streamSimple` 满足 `StreamFn`；abort 必须返回 partial；跨 provider 切换是 best-effort（thinking 变成带标签的文本）。
+- [ ] 不要读 `openai-completions.ts` 这类文件，除非你要修某个 provider。
 
 作者自己写过：统一 API 必然 leaky，所以 pi-ai 直接包各家 SDK，而不是再套一层 Vercel AI SDK。
 
@@ -239,21 +258,21 @@ Harness **明确不保证**：外部效果 exactly-once、接回 provider 的半
 
 只读 spec 的 Part 0，不要一开始啃 1400 行全文：
 
-1. `packages/agent/docs/harness.md` §0.1–0.6
+- [ ] `packages/agent/docs/harness.md` §0.1–0.6
   系统模型、三个 store、Slack 例子、崩溃在 tool 中间的例子、non-goals。
-2. `packages/agent/docs/runtime-simplification.md` 的 Core model + Durable state
+- [ ] `packages/agent/docs/runtime-simplification.md` 的 Core model + Durable state
   13 个 `at` 叶子；可见顺序永远是 `prepare → publish intent → perform effect → publish outcome`。  
    作者明确禁止再引入 generic Procedure / scheduler / graph。
-3. `packages/agent/src/harness/runtime/drive.ts` 的 `driveOperation()`
+- [ ] `packages/agent/src/harness/runtime/drive.ts` 的 `driveOperation()`
   就是那张状态表的 dispatcher。每个 `case` 点进对应 `drive/*.ts` 即可，不必一次读完。
-4. `packages/agent/docs/work-packages/06-session-branch-lane-separation.md` 开头的四概念：
+- [ ] `packages/agent/docs/work-packages/06-session-branch-lane-separation.md` 开头的四概念：
   ```text
    Session       全局耐久数据 + 一条 mutation line
    Branch        对话树上的一条路径，tip 可移动
    AgentLane     Branch + 配置 + 至多一个 operation
    AgentHarness  管 lanes，自己不是 lane
   ```
-5. 需要时再读 `docs/tool-durability.md`、`docs/assistant-durability.md`。它们回答的是同一句话：外部效果不可靠，所以用 intent/settlement 和 source-order materialization 把不确定性关进明确的窗口。
+- [ ] 需要时再读 `docs/tool-durability.md`、`docs/assistant-durability.md`。它们回答的是同一句话：外部效果不可靠，所以用 intent/settlement 和 source-order materialization 把不确定性关进明确的窗口。
 
 **不要读：** `pico.md` / `pico2.md` / `pico-v3.md`。那是讨论中的下一版设计，不是当前代码。文件自己写了 *Design under discussion*。
 
