@@ -54,6 +54,7 @@ export function withoutInitialSystemMessage(messages: Message[]): Message[] {
 	return getInitialSystemMessage(messages) ? messages.slice(1) : messages;
 }
 
+/** 从历史消息中得到的能使用的工具 */
 /** Resolve the tools available after applying every transcript delta in order. */
 export function getCurrentTools(messages: TranscriptMessages): Tool[] {
 	const tools = new Map<string, Tool>();
@@ -129,6 +130,7 @@ export function toToolDeclaration(tool: Tool): Tool {
 	};
 }
 
+/** 判断两个工具声明是否相同 */
 /**
  * Whether two tools declare the same interface to the model.
  *
@@ -146,17 +148,20 @@ export interface ToolStateChanges {
 	toolsRemoved: ToolReference[];
 }
 
+/** 比较两个完整的工具状态 */
 /** Compare two complete tool states. A changed definition is a removal followed by an addition. */
 export function getToolStateChanges(previous: readonly Tool[], current: readonly Tool[]): ToolStateChanges {
 	const previousTools = new Map(previous.map((tool) => [tool.name, tool]));
 	const currentTools = new Map(current.map((tool) => [tool.name, tool]));
 	return {
+		// current 比 previous 增加的工具
 		toolsAdded: current
 			.filter((tool) => {
 				const previousTool = previousTools.get(tool.name);
 				return previousTool === undefined || !declarationsEqual(previousTool, tool);
 			})
 			.map(toToolDeclaration),
+		// previous 比 current 移除的工具
 		toolsRemoved: previous
 			.filter((tool) => {
 				const currentTool = currentTools.get(tool.name);

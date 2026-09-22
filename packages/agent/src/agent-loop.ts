@@ -153,7 +153,9 @@ export async function runAgentLoopContinue(
 
 function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
 	return new EventStream<AgentEvent, AgentMessage[]>(
+		// 判断是否是agent_end事件
 		(event: AgentEvent) => event.type === "agent_end",
+		// 如果是agent_end事件，则返回事件的消息
 		(event: AgentEvent) => (event.type === "agent_end" ? event.messages : []),
 	);
 }
@@ -175,6 +177,8 @@ async function runLoop(
 	let config = initialConfig;
 	let lastCompletedTurn: PrepareNextTurnContext | undefined;
 	let explicitContinuation = false;
+
+	// 用户输入的消息
 	// Check for steering messages at start (user may have typed while waiting)
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
 
@@ -184,7 +188,9 @@ async function runLoop(
 
 		// Inner loop: process tool calls and steering messages
 		while (hasMoreToolCalls || pendingMessages.length > 0) {
+			// agent 添加的消息
 			let preparedMessages: AgentMessage[] = [];
+			
 			if (lastCompletedTurn) {
 				const nextTurnSnapshot = await config.prepareNextTurn?.(lastCompletedTurn);
 				if (nextTurnSnapshot) {
@@ -201,6 +207,10 @@ async function runLoop(
 									: nextTurnSnapshot.thinkingLevel,
 					};
 				}
+
+				// 上面已经取了一次 steeringMessage，当 pendingMessages 还是空的时候，再取一次
+				// 因为 prepareNextTurn 可能是一个 long-running 的操作，比如 compaction
+				// 在这个操作执行期间，用户可能输入了新的消息，所以需要再取一次
 				// Preparation can be long-running (for example, compaction). Pick up steering
 				// queued while it ran. Only poll again if the earlier poll returned nothing;
 				// otherwise one-at-a-time mode would deliver two messages in this turn.
@@ -219,6 +229,7 @@ async function runLoop(
 			}
 			pendingMessages = [];
 
+			// 请求前最后一次更新 config
 			const requestUpdate = await config.prepareRequest?.(
 				{
 					context: currentContext,
@@ -336,6 +347,7 @@ async function runLoop(
  * system message is inserted before the first non-system pending message.
  */
 function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage[]): AgentMessage[] {
+	// 找到最后一条 system 消息
 	let systemIndex = -1;
 	for (let i = pendingMessages.length - 1; i >= 0; i--) {
 		if (pendingMessages[i].role === "system") {
@@ -344,11 +356,16 @@ function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage
 		}
 	}
 	const pending = pendingMessages[systemIndex] as SystemMessage | undefined;
+	
+	// 如果 pendingMessages 中存在 system 消息
+	// 清空 system 消息工具变换信息：toolsAdded 和 toolsRemoved
 	const baseline = pending
 		? pendingMessages.map((message, index) =>
 				index === systemIndex ? withToolChanges(pending, NO_CHANGES) : message,
 			)
 		: pendingMessages;
+
+	// 得到工具变换信息
 	const changes = getToolStateChanges(
 		getCurrentTools([...context.messages, ...baseline]),
 		(context.tools ?? []).map(toToolDeclaration),
@@ -356,11 +373,16 @@ function declareToolChanges(context: AgentContext, pendingMessages: AgentMessage
 	const unchanged = changes.toolsAdded.length === 0 && changes.toolsRemoved.length === 0;
 
 	if (pending) {
+		// 如果工具没有变化，则原样返回 pendingMessages
 		// Keep the caller's message object when it already declares no tool changes.
 		if (unchanged && !pending.toolsAdded?.length && !pending.toolsRemoved?.length) return pendingMessages;
+		
+		// 如果工具有变化，则更新 system 消息的工具变换信息
 		return baseline.map((message, index) => (index === systemIndex ? withToolChanges(pending, changes) : message));
 	}
+
 	if (unchanged) return pendingMessages;
+	// 如果工具有变化，则插入一条新的 system 消息，记录更新工具变换信息
 	const update = withToolChanges({ role: "system", content: "", timestamp: Date.now() }, changes);
 	const insertIndex = pendingMessages.findIndex((message) => message.role !== "system");
 	const index = insertIndex === -1 ? pendingMessages.length : insertIndex;
@@ -392,15 +414,19 @@ async function streamAssistantResponse(
 	emit: AgentEventSink,
 	streamFunction: StreamFn,
 ): Promise<AssistantMessage> {
+	
+	// 对历史消息做处理，比如剪切过旧的消息等
 	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
 	let messages = context.messages;
 	if (config.transformContext) {
 		messages = await config.transformContext(messages, signal);
 	}
 
+	// 将 pi agent 消息转换为 LLM 消息
 	// Convert to LLM-compatible messages (AgentMessage[] → Message[])
 	const llmMessages = await config.convertToLlm(messages);
 
+	// 标准化消息
 	const llmContext = normalizeContext({ messages: llmMessages });
 
 	// Resolve API key (important for expiring tokens)
